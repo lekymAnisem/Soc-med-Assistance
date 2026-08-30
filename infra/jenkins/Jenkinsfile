@@ -41,7 +41,7 @@ pipeline {
             steps {
                 git branch: 'main',
                     credentialsId: 'github-token',
-                    url: 'https://github.com/<org>/ai-content-repurposing.git'
+                    url: 'https://github.com/lekymAnisem/Soc-med-Assistance.git'
             }
         }
 
