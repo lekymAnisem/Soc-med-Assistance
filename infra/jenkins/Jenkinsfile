@@ -74,15 +74,15 @@ pipeline {
             }
         }
 
-        stage('Upgrade npm') {
+        stage('Prepare npm') {
             steps {
                 sh '''
                     set -e
-                    # npm 10.8.0 (bundled with Node 20) has a known TAR_ENTRY_ERROR
-                    # bug extracting .map-heavy packages; upgrade to a fixed release.
-                    npm install -g npm@latest
-                    echo "NPM (after): $(npm --version)"
+                    # Serial cache prep BEFORE parallel installs. Running
+                    # `npm cache clean` inside the parallel install branches
+                    # corrupts the shared cache (TAR_ENTRY_ERROR). Do it once here.
                     npm cache clean --force 2>/dev/null || true
+                    echo "NPM: $(npm --version)"
                 '''
             }
         }
