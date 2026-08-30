@@ -422,7 +422,7 @@ pipeline {
                         fi
 
                         git commit -m "chore(gitops): deploy build ${BUILD_NUMBER} [skip ci]"
-                        git push "https://${GIT_USERNAME}:${GIT_TOKEN}@github.com/lekyAnisem/ai-content-repurposing.git" HEAD:main
+                        git push "https://${GIT_USERNAME}:${GIT_TOKEN}@github.com/lekymAnisem/Soc-med-Assistance.git" HEAD:main
                     '''
                 }
             }
