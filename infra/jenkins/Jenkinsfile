@@ -117,15 +117,27 @@ pipeline {
         }
 
         stage('Install Dependencies') {
-            parallel {
-                stage('Backend Dependencies') {
-                    steps { dir('backend') { sh 'rm -rf node_modules; npm install --no-audit --no-fund' } }
-                }
-                stage('Frontend Dependencies') {
-                    steps { dir('frontend') { sh 'rm -rf node_modules; npm install --no-audit --no-fund' } }
-                }
-                stage('Database Dependencies') {
-                    steps { dir('database') { sh 'rm -rf node_modules; npm install --no-audit --no-fund' } }
+            steps {
+                // Monorepo with npm workspaces (root package.json lists
+                // frontend/backend/database). Install at the root so the
+                // `@nova/database` workspace is linked into backend/node_modules.
+                sh '''
+                    set -e
+                    if [ -f package-lock.json ]; then
+                        npm ci --no-audit --no-fund
+                    else
+                        npm install --no-audit --no-fund
+                    fi
+                '''
+            }
+        }
+
+        stage('Build Database Package') {
+            steps {
+                // `@nova/database` exports resolve to dist/ (gitignored).
+                // Compile it first so backend typecheck/build can import it.
+                dir('database') {
+                    sh 'npm run build'
                 }
             }
         }
