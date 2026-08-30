@@ -63,13 +63,26 @@ pipeline {
                 sh '''
                     set -e
                     echo "Node: $(node --version)"
-                    echo "NPM: $(npm --version)"
+                    echo "NPM (before): $(npm --version)"
                     java -version
                     docker --version
                     aws --version
                     trivy --version || true
                     yq --version || true
                     gitleaks version || true
+                '''
+            }
+        }
+
+        stage('Upgrade npm') {
+            steps {
+                sh '''
+                    set -e
+                    # npm 10.8.0 (bundled with Node 20) has a known TAR_ENTRY_ERROR
+                    # bug extracting .map-heavy packages; upgrade to a fixed release.
+                    npm install -g npm@latest
+                    echo "NPM (after): $(npm --version)"
+                    npm cache clean --force 2>/dev/null || true
                 '''
             }
         }
@@ -106,13 +119,13 @@ pipeline {
         stage('Install Dependencies') {
             parallel {
                 stage('Backend Dependencies') {
-                    steps { dir('backend') { sh 'npm cache clean --force 2>/dev/null || true; rm -rf node_modules; npm install' } }
+                    steps { dir('backend') { sh 'rm -rf node_modules; npm install --no-audit --no-fund' } }
                 }
                 stage('Frontend Dependencies') {
-                    steps { dir('frontend') { sh 'npm cache clean --force 2>/dev/null || true; rm -rf node_modules; npm install' } }
+                    steps { dir('frontend') { sh 'rm -rf node_modules; npm install --no-audit --no-fund' } }
                 }
                 stage('Database Dependencies') {
-                    steps { dir('database') { sh 'npm cache clean --force 2>/dev/null || true; rm -rf node_modules; npm install' } }
+                    steps { dir('database') { sh 'rm -rf node_modules; npm install --no-audit --no-fund' } }
                 }
             }
         }
