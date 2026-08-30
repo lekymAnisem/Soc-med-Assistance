@@ -42,7 +42,7 @@ services:
       targetPort: 4000
     image:
       repository: nova-production-backend
-      tag: "1"
+      tag: "16"
       pullPolicy: IfNotPresent
     envVars:
       PORT: "4000"
@@ -82,7 +82,7 @@ services:
       targetPort: 8080
     image:
       repository: nova-production-frontend
-      tag: "1"
+      tag: "16"
       pullPolicy: IfNotPresent
     envVars: {}
     livenessProbe:
@@ -115,7 +115,7 @@ database:
   name: database-migration
   image:
     repository: nova-production-database
-    tag: "1"
+    tag: "16"
     pullPolicy: IfNotPresent
   command: ["npm", "run", "db:migrate"]
   resources:
