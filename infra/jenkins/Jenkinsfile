@@ -27,9 +27,6 @@ pipeline {
 
         SONAR_SERVER = 'Sonarserver'
         SONAR_TOOL   = 'SonarQube'
-
-        // Public key — safe to commit (used at frontend build time)
-        VITE_CLERK_PUBLISHABLE_KEY = credentials('clerk-publishable-key')
     }
 
     stages {
@@ -278,15 +275,17 @@ pipeline {
 
         stage('Build Frontend') {
             steps {
-                sh '''
-                    set -e
-                    IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_FRONTEND}"
-                    docker build \
-                        --build-arg VITE_CLERK_PUBLISHABLE_KEY="${VITE_CLERK_PUBLISHABLE_KEY}" \
-                        --tag "${IMAGE}:${IMAGE_TAG}" \
-                        --tag "${IMAGE}:latest" \
-                        ./frontend
-                '''
+                withCredentials([string(credentialsId: 'clerk-publishable-key', variable: 'VITE_CLERK_PUBLISHABLE_KEY')]) {
+                    sh '''
+                        set -e
+                        IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_FRONTEND}"
+                        docker build \
+                            --build-arg VITE_CLERK_PUBLISHABLE_KEY="${VITE_CLERK_PUBLISHABLE_KEY}" \
+                            --tag "${IMAGE}:${IMAGE_TAG}" \
+                            --tag "${IMAGE}:latest" \
+                            ./frontend
+                    '''
+                }
             }
         }
 
@@ -403,7 +402,13 @@ pipeline {
         }
 
         always {
-            archiveArtifacts(artifacts: 'infra/helm/nova/values.yaml', allowEmptyArchive: true)
+            script {
+                try {
+                    archiveArtifacts(artifacts: 'infra/helm/nova/values.yaml', allowEmptyArchive: true)
+                } catch (e) {
+                    echo "Skipping archiveArtifacts (no workspace context): ${e.getMessage()}"
+                }
+            }
 
             withAWS(credentials: 'aws-creds', region: 'ap-southeast-2') {
                 sh '''docker logout "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" 2>/dev/null || true'''
