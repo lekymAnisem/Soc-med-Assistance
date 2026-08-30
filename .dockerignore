@@ -10,5 +10,5 @@ node_modules
 **/*.log
 .git
 **/tmp
-**/media
+/media
 **/drizzle
