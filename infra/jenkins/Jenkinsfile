@@ -295,7 +295,19 @@ pipeline {
         }
 
         stage('Build Backend') {
-            steps { buildServiceImage('backend', "${ECR_BACKEND}") }
+            steps {
+                // backend/Dockerfile is a monorepo build: context must be the
+                // repo root so it can COPY backend/ + database/ + package.json.
+                sh '''
+                    set -e
+                    IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_BACKEND}"
+                    docker build \
+                        -f backend/Dockerfile \
+                        --tag "${IMAGE}:${IMAGE_TAG}" \
+                        --tag "${IMAGE}:latest" \
+                        .
+                '''
+            }
         }
 
         stage('Build Frontend') {
