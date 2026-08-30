@@ -117,7 +117,7 @@ database:
     repository: nova-production-database
     tag: "17"
     pullPolicy: IfNotPresent
-  command: ["npm", "run", "db:migrate"]
+  command: ["npm", "run", "db:push"]
   resources:
     requests:
       cpu: "50m"
