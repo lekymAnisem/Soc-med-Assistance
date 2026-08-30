@@ -24,10 +24,10 @@ FROM nginx:1.27-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Run as non-root (gate requires it)
-RUN chown -R nginx:nginx /usr/share/nginx/html /var/cache/nginx /var/log/nginx \
+# Run as non-root (gate requires it; runAsNonRoot needs a numeric UID)
+RUN chown -R 101:101 /usr/share/nginx/html /var/cache/nginx /var/log/nginx \
     && sed -i 's|pid /var/run/nginx.pid;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf
-USER nginx
+USER 101
 
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

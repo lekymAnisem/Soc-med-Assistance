@@ -39,9 +39,9 @@ COPY --from=build /workspace/node_modules ./node_modules
 #   DATABASE_URL, OPENROUTER_API_KEY, CORS_ORIGIN, OPENROUTER_MODEL, AI_PROVIDER, CLERK_SECRET_KEY (optional)
 #   VITE_CLERK_PUBLISHABLE_KEY (if using Clerk user auth)
 
-# Run as non-root (gate requires it)
-RUN mkdir -p /workspace/tmp && chown -R node:node /workspace
-USER node
+# Run as non-root (gate requires it; runAsNonRoot needs a numeric UID)
+RUN mkdir -p /workspace/tmp && chown -R 1000:1000 /workspace
+USER 1000
 
 EXPOSE 4000
 CMD ["node", "backend/dist/index.js"]
