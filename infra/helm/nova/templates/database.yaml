@@ -3,8 +3,9 @@
 ---
 # One-off migration job. Nova's datastore is Neon (serverless Postgres);
 # the database tier image runs Drizzle migrations against DATABASE_URL.
-# Argo CD executes this as a PreSync hook: it runs before the app sync,
-# and the job is deleted after success so re-syncs never conflict.
+# Applied as a normal sync-wave resource so it runs after the secret is
+# synced (wave -10) but before deployments (wave 0). ArgoCD waits for
+# the Job to be Healthy (completed) before proceeding.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -14,10 +15,7 @@ metadata:
     {{- include "nova.labels" . | nindent 4 }}
     app.kubernetes.io/component: database
   annotations:
-    "argocd.argoproj.io/hook": PreSync
-    "argocd.argoproj.io/hook-weight": "-5"
-    "argocd.argoproj.io/hook-delete-policy": BeforeHookCreation,HookSucceeded
-    "argocd.argoproj.io/hook-timeout-seconds": "600"
+    "argocd.argoproj.io/sync-wave": "-5"
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 300
