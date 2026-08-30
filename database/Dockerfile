@@ -30,4 +30,8 @@ COPY --from=build /app/drizzle ./drizzle
 # Required at runtime: DATABASE_URL (Neon connection string)
 # Optional commands: npm run db:migrate  |  npm run db:push
 
+# Run as non-root (gate requires it)
+RUN chown -R node:node /app
+USER node
+
 CMD ["npm", "run", "db:migrate"]
