@@ -6,6 +6,7 @@ import express from 'express'
 import cors from 'cors'
 import repurposeRouter from './routes/repurpose.js'
 import mediaRouter from './routes/media.js'
+import { metricsHandler, httpRequestsTotal, httpRequestDuration } from './metrics.js'
 import { TMP_DIR } from './paths.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -37,11 +38,23 @@ app.use(
 
 app.use(express.json({ limit: '2mb' }))
 
+// ── Metrics middleware ────────────────────────────────────────────
+app.use((req, res, next) => {
+  const end = httpRequestDuration.startTimer({ route: req.path })
+  res.on('finish', () => {
+    httpRequestsTotal.inc({ route: req.path, status: String(res.statusCode) })
+    end()
+  })
+  next()
+})
+
 // ── Routes ────────────────────────────────────────────────────────
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
+
+app.get('/api/metrics', metricsHandler)
 
 app.use('/api', repurposeRouter)
 app.use('/api', mediaRouter)

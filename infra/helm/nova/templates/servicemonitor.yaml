@@ -9,12 +9,14 @@ metadata:
     {{- toYaml .Values.metrics.serviceMonitor.labels | nindent 4 }}
 spec:
   selector:
-    matchLabels:
-      {{- include "nova.labels" . | nindent 6 }}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: {{ toYaml .Values.metrics.serviceMonitor.components | nindent 10 }}
   endpoints:
     - port: http
       interval: {{ .Values.metrics.interval | default "30s" }}
-      path: {{ .Values.metrics.path | default "/metrics" }}
+      path: {{ .Values.metrics.path | default "/api/metrics" }}
       scrapeTimeout: {{ .Values.metrics.scrapeTimeout | default "10s" }}
   namespaceSelector:
     matchNames:

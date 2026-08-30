@@ -26,7 +26,7 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Run as non-root (gate requires it; runAsNonRoot needs a numeric UID)
 RUN chown -R 101:101 /usr/share/nginx/html /var/cache/nginx /var/log/nginx \
-    && sed -i 's|pid /var/run/nginx.pid;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf
+    && sed -i 's|pid[[:space:]]*/var/run/nginx.pid;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf
 USER 101
 
 EXPOSE 80

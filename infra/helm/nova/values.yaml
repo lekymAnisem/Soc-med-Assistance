@@ -144,12 +144,14 @@ ingress:
           servicePort: 80
   tls: []
 metrics:
-  enabled: false
-  path: /metrics
+  enabled: true
+  path: /api/metrics
   interval: 30s
   scrapeTimeout: 10s
   serviceMonitor:
-    enabled: false
+    enabled: true
+    components:
+      - backend
     labels:
       release: monitoring
 serviceAccount:
