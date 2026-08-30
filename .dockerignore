@@ -1,0 +1,14 @@
+# Used when building the BACKEND tier (context = repo root).
+# Frontend/database tiers use their own directories as context.
+
+node_modules
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!.env.example
+**/*.log
+.git
+**/tmp
+**/media
+**/drizzle

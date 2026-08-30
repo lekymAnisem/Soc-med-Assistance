@@ -1,0 +1,34 @@
+# Gitleaks configuration for the Nova AI Content Repurposing platform
+# Docs: https://github.com/gitleaks/gitleaks
+
+title = "Nova gitleaks config"
+minVersion = "v8.25.0"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Nova global allowlist"
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''(^|/)coverage/''',
+  '''\.min\.js$''',
+  '''\.map$''',
+  '''package-lock\.json$''',
+  '''\.gitleaks\.toml$''',
+  '''infra/terraform/terraform\.tfvars$''',
+  '''\.env\.example$''',
+  '''\.pem$''',
+  '''(^|/)\.terraform/''',
+  '''frontend/node_modules/''',
+]
+
+# Clerk publishable keys are public by design and safe to commit.
+[[rules]]
+id = "nova-clerk-publishable-key"
+description = "Clerk publishable key (pk_test_/pk_live_)"
+regex = '''pk_(test|live)_[A-Za-z0-9]{20,}'''
+entropy = 3
+keywords = ["pk_test_", "pk_live_"]

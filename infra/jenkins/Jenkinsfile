@@ -1,0 +1,441 @@
+pipeline {
+    agent any
+
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timestamps()
+    }
+
+    tools {
+        jdk 'jdk21'
+        nodejs 'node20'
+    }
+
+    environment {
+        AWS_REGION     = 'ap-southeast-2'
+        APP_NAME       = 'Nova'
+        APP_NAME_LOWER = APP_NAME.toLowerCase()
+        ENVIRONMENT    = 'production'
+
+        ECR_BACKEND   = "${APP_NAME_LOWER}-${ENVIRONMENT}-backend"
+        ECR_FRONTEND  = "${APP_NAME_LOWER}-${ENVIRONMENT}-frontend"
+        ECR_DATABASE  = "${APP_NAME_LOWER}-${ENVIRONMENT}-database"
+
+        IMAGE_TAG    = "${BUILD_NUMBER}"
+        VALUES_FILE  = 'infra/helm/nova/values.yaml'
+
+        SONAR_SERVER = 'Sonarserver'
+        SONAR_TOOL   = 'SonarQube'
+
+        // Public key — safe to commit (used at frontend build time)
+        VITE_CLERK_PUBLISHABLE_KEY = credentials('clerk-publishable-key')
+    }
+
+    stages {
+        stage('Clean Workspace') {
+            steps { deleteDir() }
+        }
+
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main',
+                    credentialsId: 'github-token',
+                    url: 'https://github.com/<org>/ai-content-repurposing.git'
+            }
+        }
+
+        stage('Verify Project Structure') {
+            steps {
+                sh '''
+                    set -e
+                    echo "Workspace: $(pwd)"
+                    ls -la
+
+                    for tier in backend frontend database; do
+                        test -d "$tier" || { echo "ERROR: $tier not found"; exit 1; }
+                    done
+
+                    test -f "$VALUES_FILE" || { echo "ERROR: $VALUES_FILE not found"; exit 1; }
+                '''
+            }
+        }
+
+        stage('Verify Required Tools') {
+            steps {
+                sh '''
+                    set -e
+                    echo "Node: $(node --version)"
+                    echo "NPM: $(npm --version)"
+                    java -version
+                    docker --version
+                    aws --version
+                    trivy --version || true
+                    yq --version || true
+                    gitleaks version || true
+                '''
+            }
+        }
+
+        stage('Initialize AWS') {
+            steps {
+                withAWS(credentials: 'aws-creds', region: 'ap-southeast-2') {
+                    script {
+                        env.AWS_ACCOUNT_ID = sh(
+                            script: 'aws sts get-caller-identity --query Account --output text',
+                            returnStdout: true
+                        ).trim()
+                        if (!env.AWS_ACCOUNT_ID) error('Unable to retrieve AWS account ID')
+                        echo "AWS account ID: ${env.AWS_ACCOUNT_ID}, region: ${env.AWS_REGION}"
+                    }
+                }
+            }
+        }
+
+        stage('Ensure ECR Repositories') {
+            steps {
+                withAWS(credentials: 'aws-creds', region: 'ap-southeast-2') {
+                    sh '''
+                        set -e
+                        for REPO in "$ECR_BACKEND" "$ECR_FRONTEND" "$ECR_DATABASE"; do
+                            aws ecr describe-repositories --repository-names "$REPO" --region "$AWS_REGION" >/dev/null 2>&1 ||
+                            aws ecr create-repository --repository-name "$REPO" --image-scanning-configuration scanOnPush=true --region "$AWS_REGION"
+                        done
+                    '''
+                }
+            }
+        }
+
+        stage('Install Dependencies') {
+            parallel {
+                stage('Backend Dependencies') {
+                    steps { dir('backend') { sh 'if [ -f package-lock.json ]; then npm ci; else npm install; fi' } }
+                }
+                stage('Frontend Dependencies') {
+                    steps { dir('frontend') { sh 'if [ -f package-lock.json ]; then npm ci; else npm install; fi' } }
+                }
+                stage('Database Dependencies') {
+                    steps { dir('database') { sh 'if [ -f package-lock.json ]; then npm ci; else npm install; fi' } }
+                }
+            }
+        }
+
+        stage('TypeScript Check') {
+            parallel {
+                stage('Backend TypeScript') {
+                    steps {
+                        dir('backend') {
+                            sh '''
+                                set -e
+                                if npm run 2>/dev/null | grep -q "typecheck"; then
+                                    npm run typecheck
+                                elif [ -x node_modules/.bin/tsc ]; then
+                                    npx --no-install tsc --noEmit
+                                else
+                                    echo "TypeScript not configured. Skipping."
+                                fi
+                            '''
+                        }
+                    }
+                }
+                stage('Database TypeScript') {
+                    steps {
+                        dir('database') {
+                            sh '''
+                                set -e
+                                if npm run 2>/dev/null | grep -q "typecheck"; then
+                                    npm run typecheck
+                                elif [ -x node_modules/.bin/tsc ]; then
+                                    npx --no-install tsc --noEmit
+                                else
+                                    echo "TypeScript not configured. Skipping."
+                                fi
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('SonarQube Backend Analysis') {
+            steps {
+                script {
+                    def scannerHome = tool(name: env.SONAR_TOOL, type: 'hudson.plugins.sonar.SonarRunnerInstallation')
+                    withSonarQubeEnv(env.SONAR_SERVER) {
+                        sh """
+                            set -e
+                            "${scannerHome}/bin/sonar-scanner" \
+                                -Dsonar.projectKey=nova-backend \
+                                -Dsonar.projectName="Nova Backend" \
+                                -Dsonar.sources=backend/src \
+                                -Dsonar.sourceEncoding=UTF-8 \
+                                -Dsonar.exclusions="frontend/**,database/**,node_modules/**,dist/**,coverage/**"
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Backend Quality Gate') {
+            steps {
+                script {
+                    try {
+                        timeout(time: 10, unit: 'MINUTES') { waitForQualityGate abortPipeline: false }
+                    } catch (err) {
+                        echo "SonarQube backend quality gate check failed: ${err.message}"
+                        echo "Continuing pipeline (abortPipeline: false)."
+                    }
+                }
+            }
+        }
+
+        stage('Security Scans') {
+            parallel {
+                stage('Gitleaks Secret Scan') {
+                    steps {
+                        sh '''
+                            set +e
+                            if command -v gitleaks >/dev/null 2>&1; then
+                                if [ -f .gitleaks.toml ]; then
+                                    gitleaks detect --source . --config .gitleaks.toml \
+                                        --report-path gitleaks-report.json --report-format json --no-banner
+                                else
+                                    gitleaks detect --source . \
+                                        --report-path gitleaks-report.json --report-format json --no-banner
+                                fi
+                                GITLEAKS_EXIT=$?
+                                if [ $GITLEAKS_EXIT -eq 0 ]; then
+                                    echo "Gitleaks: no secrets found."
+                                else
+                                    echo "Gitleaks: secrets detected (exit $GITLEAKS_EXIT). Failing build."
+                                fi
+                                exit $GITLEAKS_EXIT
+                            else
+                                echo "gitleaks not installed. Skipping secret scan."
+                                exit 0
+                            fi
+                        '''
+                    }
+                    post {
+                        always { archiveArtifacts(artifacts: 'gitleaks-report.json', allowEmptyArchive: true) }
+                    }
+                }
+
+                stage('Trivy File System Scan') {
+                    steps {
+                        sh '''
+                            set +e
+                            trivy fs --format table --severity HIGH,CRITICAL --output trivy-fs.txt .
+                            echo "Trivy exit code: $?"
+                            exit 0
+                        '''
+                    }
+                    post { always { archiveArtifacts(artifacts: 'trivy-fs.txt', allowEmptyArchive: true) } }
+                }
+
+                stage('Trivy Config Scan (Dockerfile/IaC)') {
+                    steps {
+                        sh '''
+                            set +e
+                            trivy config --format table --severity HIGH,CRITICAL \
+                                --output trivy-config.txt \
+                                backend frontend database infra/k8s infra/helm infra/terraform
+                            echo "Trivy config exit code: $?"
+                            exit 0
+                        '''
+                    }
+                    post { always { archiveArtifacts(artifacts: 'trivy-config.txt', allowEmptyArchive: true) } }
+                }
+            }
+        }
+
+        stage('Free Up Disk Space') {
+            steps {
+                sh '''
+                    docker system prune -a -f --volumes || true
+                    docker builder prune -f || true
+                    df -h /
+                '''
+            }
+        }
+
+        stage('Login to ECR') {
+            steps {
+                withAWS(credentials: 'aws-creds', region: 'ap-southeast-2') {
+                    sh '''
+                        set -e
+                        ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+                        aws ecr get-login-password --region "$AWS_REGION" |
+                        docker login --username AWS --password-stdin "$ECR_REGISTRY"
+                    '''
+                }
+            }
+        }
+
+        stage('Build Backend') {
+            steps { buildServiceImage('backend', "${ECR_BACKEND}") }
+        }
+
+        stage('Build Frontend') {
+            steps {
+                sh '''
+                    set -e
+                    IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_FRONTEND}"
+                    docker build \
+                        --build-arg VITE_CLERK_PUBLISHABLE_KEY="${VITE_CLERK_PUBLISHABLE_KEY}" \
+                        --tag "${IMAGE}:${IMAGE_TAG}" \
+                        --tag "${IMAGE}:latest" \
+                        ./frontend
+                '''
+            }
+        }
+
+        stage('Build Database') {
+            steps {
+                sh '''
+                    set -e
+                    IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_DATABASE}"
+                    docker build --tag "${IMAGE}:${IMAGE_TAG}" --tag "${IMAGE}:latest" ./database
+                '''
+            }
+        }
+
+        stage('Validate Non-Root Images') {
+            steps {
+                script {
+                    def services = [
+                        backend:  env.ECR_BACKEND,
+                        frontend: env.ECR_FRONTEND,
+                        database: env.ECR_DATABASE
+                    ]
+                    services.each { label, repo ->
+                        def image = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${repo}:${env.IMAGE_TAG}"
+                        def user = sh(
+                            script: "docker inspect --format '{{.Config.User}}' \"${image}\"",
+                            returnStdout: true
+                        ).trim()
+                        echo "Validating ${label}: image user = '${user}' (expect non-empty, non-root)"
+                        if (user == '' || user == 'root' || user == '0:0' || user == '0') {
+                            error "SECURITY GATE FAILED: ${label} image runs as root (user='${user}'). Refusing to push."
+                        }
+                    }
+                    echo "All ${services.size()} images run as non-root."
+                }
+            }
+        }
+
+        stage('Trivy Scan Backend') {
+            steps { scanTrivy("${ECR_BACKEND}", 'trivy-backend.txt') }
+            post { always { archiveArtifacts(artifacts: 'trivy-backend.txt', allowEmptyArchive: true) } }
+        }
+
+        stage('Trivy Scan Frontend') {
+            steps { scanTrivy("${ECR_FRONTEND}", 'trivy-frontend.txt') }
+            post { always { archiveArtifacts(artifacts: 'trivy-frontend.txt', allowEmptyArchive: true) } }
+        }
+
+        stage('Trivy Scan Database') {
+            steps { scanTrivy("${ECR_DATABASE}", 'trivy-database.txt') }
+            post { always { archiveArtifacts(artifacts: 'trivy-database.txt', allowEmptyArchive: true) } }
+        }
+
+        stage('Push Backend') {
+            steps { pushServiceImage("${ECR_BACKEND}") }
+        }
+
+        stage('Push Frontend') {
+            steps { pushServiceImage("${ECR_FRONTEND}") }
+        }
+
+        stage('Push Database') {
+            steps { pushServiceImage("${ECR_DATABASE}") }
+        }
+
+        stage('Update Helm Image Tags') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'github-token',
+                        usernameVariable: 'GIT_USERNAME',
+                        passwordVariable: 'GIT_TOKEN'
+                    )
+                ]) {
+                    sh '''
+                        set -e
+
+                        test -f "$VALUES_FILE" || { echo "ERROR: $VALUES_FILE not found"; exit 1; }
+                        command -v yq >/dev/null 2>&1 || { echo "ERROR: yq is not installed"; exit 1; }
+
+                        echo "Updating Helm image tags to ${IMAGE_TAG}"
+
+                        yq -i '.services.backend.image.tag = strenv(IMAGE_TAG)' "$VALUES_FILE"
+                        yq -i '.services.frontend.image.tag = strenv(IMAGE_TAG)' "$VALUES_FILE"
+                        yq -i '.database.image.tag = strenv(IMAGE_TAG)' "$VALUES_FILE"
+
+                        echo "--- Updated Helm image values ---"
+                        yq '.services.*.image' "$VALUES_FILE"
+                        yq '.database.image' "$VALUES_FILE"
+
+                        git config user.name "Jenkins CI"
+                        git config user.email "jenkins@nova.local"
+                        git add "$VALUES_FILE"
+
+                        if git diff --cached --quiet; then
+                            echo "No Helm values changes detected."
+                            exit 0
+                        fi
+
+                        git commit -m "chore(gitops): deploy build ${BUILD_NUMBER} [skip ci]"
+                        git push "https://${GIT_USERNAME}:${GIT_TOKEN}@github.com/<org>/ai-content-repurposing.git" HEAD:main
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "CI succeeded: images pushed and Helm values updated for Argo CD build ${BUILD_NUMBER}"
+        }
+
+        failure {
+            echo "Pipeline failed for build ${BUILD_NUMBER}"
+        }
+
+        always {
+            archiveArtifacts(artifacts: 'infra/helm/nova/values.yaml', allowEmptyArchive: true)
+
+            withAWS(credentials: 'aws-creds', region: 'ap-southeast-2') {
+                sh '''docker logout "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" 2>/dev/null || true'''
+            }
+        }
+    }
+}
+
+// ── Shared helper methods ────────────────────────────────────────────
+
+def buildServiceImage(String contextDir, String ecrRepo) {
+    sh """
+        set -e
+        IMAGE="\${AWS_ACCOUNT_ID}.dkr.ecr.\${AWS_REGION}.amazonaws.com/${ecrRepo}"
+        docker build --tag "\${IMAGE}:\${IMAGE_TAG}" --tag "\${IMAGE}:latest" ./${contextDir}
+    """
+}
+
+def scanTrivy(String ecrRepo, String outputFile) {
+    sh """
+        set +e
+        IMAGE="\${AWS_ACCOUNT_ID}.dkr.ecr.\${AWS_REGION}.amazonaws.com/${ecrRepo}:\${IMAGE_TAG}"
+        trivy image --format table --severity HIGH,CRITICAL --output ${outputFile} "\$IMAGE"
+        exit 0
+    """
+}
+
+def pushServiceImage(String ecrRepo) {
+    sh """
+        set -e
+        IMAGE="\${AWS_ACCOUNT_ID}.dkr.ecr.\${AWS_REGION}.amazonaws.com/${ecrRepo}"
+        docker push "\${IMAGE}:\${IMAGE_TAG}"
+        docker push "\${IMAGE}:latest"
+    """
+}

@@ -1,0 +1,50 @@
+{{- if .Values.database.enabled }}
+{{- $secretName := .Values.secrets.existingSecretName | default .Values.global.existingSecretName | default (printf "%s-secrets" (include "nova.fullname" .)) }}
+---
+# One-off migration job. Nova's datastore is Neon (serverless Postgres);
+# the database tier image runs Drizzle migrations against DATABASE_URL.
+# Argo CD executes this as a PreSync hook: it runs before the app sync,
+# and the job is deleted after success so re-syncs never conflict.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.database.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "nova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+  annotations:
+    "argocd.argoproj.io/hook": PreSync
+    "argocd.argoproj.io/hook-weight": "-5"
+    "argocd.argoproj.io/hook-delete-policy": BeforeHookCreation,HookSucceeded
+    "argocd.argoproj.io/hook-timeout-seconds": "600"
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "nova.name" . }}
+        app.kubernetes.io/component: database
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ include "nova.image" (dict "repository" .Values.database.image.repository "tag" .Values.database.image.tag "root" $) }}
+          imagePullPolicy: {{ .Values.database.image.pullPolicy | default "IfNotPresent" }}
+          command: {{ toJson .Values.database.command | default "[\"npm\",\"run\",\"db:migrate\"]" }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ $secretName }}
+          resources:
+            {{- toYaml .Values.database.resources | nindent 12 }}
+{{- end }}

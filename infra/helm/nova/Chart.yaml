@@ -1,0 +1,6 @@
+apiVersion: v2
+name: nova
+description: Helm chart for the Nova AI Content Repurposing platform (frontend, backend, database-migrations)
+type: application
+version: 1.0.0
+appVersion: "1.0"

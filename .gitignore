@@ -1,0 +1,29 @@
+# Environment files — never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
+
+# Logs
+*.log
+logs/
+
+# Local IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Terraform local state
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.backup
+infra/terraform/*.tfvars
+!infra/terraform/terraform.tfvars.example

@@ -1,0 +1,22 @@
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ printf "%s-servicemonitor" (include "nova.fullname" .) }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "nova.labels" . | nindent 4 }}
+    {{- toYaml .Values.metrics.serviceMonitor.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "nova.labels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      interval: {{ .Values.metrics.interval | default "30s" }}
+      path: {{ .Values.metrics.path | default "/metrics" }}
+      scrapeTimeout: {{ .Values.metrics.scrapeTimeout | default "10s" }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.namespace }}
+{{- end }}

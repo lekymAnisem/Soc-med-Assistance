@@ -1,0 +1,180 @@
+# Nova Helm values
+# Environment: production
+# Namespace: nova
+
+namespace: nova
+nameOverride: ""
+fullnameOverride: ""
+imageRegistry: "218619602282.dkr.ecr.ap-southeast-2.amazonaws.com"
+global:
+  nodeEnv: "production"
+  configMapName: "nova-config"
+  existingSecretName: "nova-secrets"
+secrets:
+  create: false
+  existingSecretName: "nova-secrets"
+  externalSecret:
+    enabled: true
+    storeName: "nova-aws-secrets-manager"
+    remoteKey: "nova-secrets"
+    region: "ap-southeast-2"
+    refreshInterval: 1h
+    serviceAccountName: "external-secrets"
+    serviceAccountNamespace: "external-secrets"
+config:
+  NODE_ENV: "production"
+  PORT: "4000"
+  CORS_ORIGIN: "*"
+  AI_PROVIDER: "openrouter"
+  OPENROUTER_MODEL: "nvidia/nemotron-3-super-120b-a12b:free"
+  VITE_CLERK_PUBLISHABLE_KEY: "pk_test_..."
+  BACKEND_SERVICE: "backend"
+services:
+  backend:
+    enabled: true
+    name: backend
+    port: 4000
+    replicas: 2
+    serviceType: ClusterIP
+    service:
+      type: ClusterIP
+      port: 4000
+      targetPort: 4000
+    image:
+      repository: nova-production-backend
+      tag: "1"
+      pullPolicy: IfNotPresent
+    envVars:
+      PORT: "4000"
+    livenessProbe:
+      enabled: true
+      path: /api/health
+      port: 4000
+      initialDelaySeconds: 30
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readinessProbe:
+      enabled: true
+      path: /api/health
+      port: 4000
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 3
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+  frontend:
+    enabled: true
+    name: frontend
+    port: 8080
+    replicas: 2
+    skipMetrics: true
+    serviceType: LoadBalancer
+    service:
+      type: LoadBalancer
+      port: 80
+      targetPort: 8080
+    image:
+      repository: nova-production-frontend
+      tag: "1"
+      pullPolicy: IfNotPresent
+    envVars: {}
+    livenessProbe:
+      enabled: true
+      path: /
+      port: 8080
+      initialDelaySeconds: 15
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readinessProbe:
+      enabled: true
+      path: /
+      port: 8080
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "250m"
+        memory: "128Mi"
+    nginxConfigMap: "frontend-nginx-config"
+    skipEnvFrom: true
+database:
+  enabled: true
+  name: database-migration
+  image:
+    repository: nova-production-database
+    tag: "1"
+    pullPolicy: IfNotPresent
+  command: ["npm", "run", "db:migrate"]
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "250m"
+      memory: "128Mi"
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+  rules:
+    - host: nova.local
+      paths:
+        - path: /api
+          pathType: Prefix
+          serviceName: backend
+          servicePort: 4000
+        - path: /
+          pathType: Prefix
+          serviceName: frontend
+          servicePort: 80
+  tls: []
+metrics:
+  enabled: false
+  path: /metrics
+  interval: 30s
+  scrapeTimeout: 10s
+  serviceMonitor:
+    enabled: false
+    labels:
+      release: monitoring
+serviceAccount:
+  create: true
+  name: nova
+  annotations: {}
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  fsGroup: 101
+containerSecurityContext:
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+nodeSelector: {}
+tolerations: []
+affinity: {}
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
