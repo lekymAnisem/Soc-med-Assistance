@@ -5,5 +5,4 @@ dist
 !.env.example
 *.log
 Dockerfile
-nginx.conf
 .dockerignore
