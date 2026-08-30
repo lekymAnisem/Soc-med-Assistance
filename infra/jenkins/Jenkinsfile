@@ -106,13 +106,13 @@ pipeline {
         stage('Install Dependencies') {
             parallel {
                 stage('Backend Dependencies') {
-                    steps { dir('backend') { sh 'if [ -f package-lock.json ]; then npm ci; else npm install; fi' } }
+                    steps { dir('backend') { sh 'npm cache clean --force 2>/dev/null || true; rm -rf node_modules; npm install' } }
                 }
                 stage('Frontend Dependencies') {
-                    steps { dir('frontend') { sh 'if [ -f package-lock.json ]; then npm ci; else npm install; fi' } }
+                    steps { dir('frontend') { sh 'npm cache clean --force 2>/dev/null || true; rm -rf node_modules; npm install' } }
                 }
                 stage('Database Dependencies') {
-                    steps { dir('database') { sh 'if [ -f package-lock.json ]; then npm ci; else npm install; fi' } }
+                    steps { dir('database') { sh 'npm cache clean --force 2>/dev/null || true; rm -rf node_modules; npm install' } }
                 }
             }
         }
