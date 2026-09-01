@@ -129,7 +129,7 @@ ingress:
   enabled: true
   className: nginx
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-body-size: "120m"
     nginx.ingress.kubernetes.io/use-regex: "true"
   rules:
     - host: nova.local
