@@ -82,7 +82,7 @@ services:
       targetPort: 8080
     image:
       repository: nova-production-frontend
-      tag: "19"
+      tag: "20"
       pullPolicy: IfNotPresent
     envVars: {}
     livenessProbe:
