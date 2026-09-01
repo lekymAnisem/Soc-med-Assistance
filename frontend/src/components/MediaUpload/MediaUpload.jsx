@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-const API_URL = (import.meta.env?.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '')
+const API_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
 
 /** Cloudinary URLs are absolute; local/relative URLs get the API origin. */
 const resolveUrl = (u) => (/^https?:\/\//.test(u) ? u : `${API_URL}${u}`)

@@ -8,7 +8,7 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 # Vite inlines these at build time
-ARG VITE_API_URL=http://localhost:4000
+ARG VITE_API_URL=
 ARG VITE_CLERK_PUBLISHABLE_KEY=
 
 COPY package.json ./
