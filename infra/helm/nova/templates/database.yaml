@@ -20,6 +20,11 @@ metadata:
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 300
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "nova.name" . }}
+      app.kubernetes.io/component: database
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
