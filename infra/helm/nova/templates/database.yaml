@@ -20,6 +20,7 @@ metadata:
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 300
+  manualSelector: true
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "nova.name" . }}
